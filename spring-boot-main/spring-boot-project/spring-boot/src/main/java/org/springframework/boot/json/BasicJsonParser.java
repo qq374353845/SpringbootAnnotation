@@ -29,6 +29,8 @@ import org.springframework.util.StringUtils;
  * limitations with respect to the JSON specification (e.g. only supports String values),
  * so users will probably prefer to have a library handle things instead (Jackson or Snake
  * YAML are supported).
+ * 翻译过来： 真正基本的 JSON 解析器，适用于没有其他可用内容时。在 JSON 规范方面存在一些限制（例如，仅支持 String 值），
+ * 因此用户可能更愿意让库来处理事情（支持 Jackson 或 Snake YAML）
  *
  * @author Dave Syer
  * @author Jean de Klerk
@@ -50,6 +52,15 @@ public class BasicJsonParser extends AbstractJsonParser {
 		return tryParse(() -> parseList(json, (jsonToParse) -> parseListInternal(0, jsonToParse)), Exception.class);
 	}
 
+
+	/**
+	 * 将json字符串转换成 List 示例 ： ["xx1","xx2"]    转换成 List<String>  ,
+	 * 文档写着仅支持String类型，
+	 * 但是看了代码，也支持 Long 、Double
+	 * @param nesting
+	 * @param json
+	 * @return
+	 */
 	private List<Object> parseListInternal(int nesting, String json) {
 		List<Object> list = new ArrayList<>();
 		json = trimLeadingCharacter(trimTrailingCharacter(json, ']'), '[').trim();
@@ -59,6 +70,16 @@ public class BasicJsonParser extends AbstractJsonParser {
 		return list;
 	}
 
+	/**
+	 * 1.如果json 中存在 [ 调用转 parseListInternal方法 转List
+	 * 2.如果json 中存在 { 调用转 parseMapInternal 转Map
+	 * 3.如果前面带有 “ 就去掉前面的 ” 和 后面的 “   ，返回String  如 "xxx" ,返回 xxx
+	 * 4.前面都不满足，将josn转换成Long , 转换失败，强转成 Double
+	 * 5.以上都不满足或者转换失败，直接返回json字符串
+	 * @param nesting
+	 * @param json
+	 * @return
+	 */
 	private Object parseInternal(int nesting, String json) {
 		if (nesting > MAX_DEPTH) {
 			throw new IllegalStateException("JSON is too deeply nested");
@@ -87,23 +108,36 @@ public class BasicJsonParser extends AbstractJsonParser {
 		return json;
 	}
 
+	/**
+	 * 将json字符串解析成Map
+	 * @param nesting
+	 * @param json
+	 * @return
+	 */
 	private Map<String, Object> parseMapInternal(int nesting, String json) {
 		Map<String, Object> map = new LinkedHashMap<>();
 		// 将一个json去掉前面的 {  和 后面的 }    {  "id": 1, "name": "张三",   "age": 30 }
 		json = trimLeadingCharacter(trimTrailingCharacter(json, '}'), '{').trim();
+		// 经上面一步得出  "id": 1, "name": "张三",   "age": 30
+		//经过tokenize方法， pair 的值是示例 ："id": 1
 		for (String pair : tokenize(json)) {
+			// 将"id": 1  拆分成  "id"   1 两个
 			String[] values = StringUtils.trimArrayElements(StringUtils.split(pair, ":"));
+
 			Assert.state(values[0].startsWith("\"") && values[0].endsWith("\""),
 					"Expecting double-quotes around field names");
+			// 将values[0] 也就是 "id"  去掉 “ 得出结果为  id
 			String key = trimLeadingCharacter(trimTrailingCharacter(values[0], '"'), '"');
+			// 将 values[1] 也就是 1 转成相应的基本类型，看parseInternal方法注明
 			Object value = parseInternal(nesting, values[1]);
+
 			map.put(key, value);
 		}
 		return map;
 	}
 
 	/**
-	 * 1.如果 string 的最后一位和 c 相同 ， 将 string截取，不要最后一位
+	 *    string 的最后一位和 c 相同 ， 将 string截取，不要最后一位
 	 * @param string
 	 * @param c
 	 * @return
@@ -116,7 +150,7 @@ public class BasicJsonParser extends AbstractJsonParser {
 	}
 
 	/**
-	 * 1.如果 string 的第一位和 c 相同 ， 将 string截取，不要第一位
+	 *   string 的第一位和 c 相同 ， 将 string截取，不要第一位
 	 * @param string
 	 * @param c
 	 * @return
@@ -129,6 +163,17 @@ public class BasicJsonParser extends AbstractJsonParser {
 		return string;
 	}
 
+	/**
+	 *   1.示例 {  "id": 1, "name": "张三",   "age": 30 }
+	 *   将所有的key-val对加进List 里面返回， 如： "id": 1   "name": "张三"   "age": 30  注：包括“  ：
+	 *   注：我估计parseListInternal 方法不支持List<Object> 不支持 Object ，只支持 基本类型
+	 *   不支持复杂数据对象的解析
+	 *   经证实： 看了类注释确实不支持复杂类型数据
+	 *   2.示例 ： ["xx1","xx2"]    一个String数组
+	 *   会把每个字符串加进 List  ， 如 ； xx1  , xx2
+	 * @param json
+	 * @return
+	 */
 	private List<String> tokenize(String json) {
 		List<String> list = new ArrayList<>();
 		int index = 0;
@@ -142,6 +187,8 @@ public class BasicJsonParser extends AbstractJsonParser {
 		while (index < json.length()) {
 			char current = json.charAt(index);
 
+			// current == '\\'   inEscape = true
+			// 带斜杠json 示例 {\"GivenName\":\"sduie\"}
 			if (inEscape) {
 				// 将遍历的字符加入 build
 				build.append(current);
@@ -166,11 +213,17 @@ public class BasicJsonParser extends AbstractJsonParser {
 				// 示例 {  "id": 1, "name": "张三",   "age": 30 }
 				inValue = !inValue;
 			}
+
 			if (current == ',' && inObject == 0 && inList == 0 && !inValue) {
+				// current == ，   这一句代码主要就是 current ==  ，  就是读到了 ，号， 读完了一对key-val 串
+				// 示例 {  "id": 1, "name": "张三",   "age": 30 }
+				//
 				list.add(build.toString());
 				build.setLength(0);
 			}
 			else if (current == '\\') {
+				// 带斜杠json 示例 {\"GivenName\":\"sduie\"}
+
 				inEscape = true;
 			}
 			else {
